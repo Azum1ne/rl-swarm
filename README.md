@@ -1,7 +1,6 @@
 # 🧠 RL-Swarm (Private Setup)
-
-> Private node setup guide for RL Swarm.  
-> Thanks to **arcxteam** & **gasoline** for the base setup references.
+  
+#### Thanks to **arcxteam** & **gasoline** for the base setup references.
 
 ---
 
@@ -40,6 +39,7 @@ cd rl-swarm && \
 rm -f run_rl_swarm.sh && \
 wget https://raw.githubusercontent.com/gasoline2255/Gensyn-Testnet/main/run_rl_swarm.sh -O run_rl_swarm.sh && \
 chmod +x run_rl_swarm.sh && \
+git clone https://github.com/gasoline2255/genrl && \
 echo "✅ RL-Swarm ready with run_rl_swarm.sh from Gensyn-Testnet"
 ```
 
