@@ -72,13 +72,6 @@ pip install vllm
 
 ---
 
-## 🐳 Docker (CPU Only)
-```bash
-docker compose run --rm --build -Pit --user 0:0 swarm-cpu
-```
-
----
-
 ## 🔑 Login (Tunnel Access)
 Once `run_rl_swarm.sh` is running, open the tunnel for login:
 ```bash
