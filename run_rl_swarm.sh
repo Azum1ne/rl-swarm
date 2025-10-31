@@ -2,16 +2,6 @@
 
 set -euo pipefail
 
-# ================== BEHAVIOR TOGGLES ==================
-# Set true to auto-answer prompts (no interaction).
-AUTO_PROMPT=${AUTO_PROMPT:-true}
-
-# Defaults used when AUTO_PROMPT=true
-DEFAULT_PUSH_TO_HF="N"
-DEFAULT_MODEL_NAME="Gensyn/Qwen2.5-0.5B-Instruct"
-DEFAULT_PRG_GAME="Y"
-# ======================================================
-
 # General arguments
 ROOT=$PWD
 
@@ -27,22 +17,6 @@ export SWARM_CONTRACT="0xFaD7C5e93f28257429569B854151A1B8DCD404c2"
 export PRG_CONTRACT="0x51D4db531ae706a6eC732458825465058fA23a35"
 export HUGGINGFACE_ACCESS_TOKEN="None"
 export PRG_GAME=true
-
-# If AUTO_PROMPT=true, pre-set MODEL_NAME and PRG_GAME (no questions asked)
-if [ "${AUTO_PROMPT}" = "true" ]; then
-    # Hugging Face push? N
-    export HUGGINGFACE_ACCESS_TOKEN="None"
-
-    # Model name
-    export MODEL_NAME="${DEFAULT_MODEL_NAME}"
-
-    # PRG game? Y
-    if [ "${DEFAULT_PRG_GAME}" = "Y" ] || [ "${DEFAULT_PRG_GAME}" = "y" ]; then
-        export PRG_GAME=true
-    else
-        export PRG_GAME=false
-    fi
-fi
 
 # Path to an RSA private key. If this path does not exist, a new key pair will be created.
 # Remove this file if you want a new PeerID.
@@ -60,8 +34,9 @@ if [ -n "$DOCKER" ]; then
         /home/gensyn/rl_swarm/configs
         /home/gensyn/rl_swarm/logs
     )
+
     for volume in ${volumes[@]}; do
-        sudo chown -R 1001:1001 $volume
+        chown -R 1001:1001 $volume
     done
 fi
 
@@ -80,12 +55,18 @@ echo_green() { echo -e "$GREEN_TEXT$1$RESET_TEXT"; }
 echo_blue()  { echo -e "$BLUE_TEXT$1$RESET_TEXT"; }
 echo_red()   { echo -e "$RED_TEXT$1$RESET_TEXT"; }
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd $(dirname ${BASH_SOURCE[0]}) && pwd)"
 
 # Function to clean up the server process upon exit
 cleanup() {
     echo_green ">> Shutting down trainer..."
+
+    # Remove modal credentials if they exist
+    # rm -r $ROOT_DIR/modal-login/temp-data/*.json 2> /dev/null || true
+
+    # Kill all processes belonging to this script's process group
     kill -- -$$ || true
+
     exit 0
 }
 
@@ -105,6 +86,7 @@ cat << "EOF"
     ██   ██ ███████       ███████  ███ ███  ██   ██ ██   ██ ██      ██
 
     From Gensyn
+
 EOF
 
 # Create logs directory if it doesn't exist
@@ -114,6 +96,7 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
     # Run modal_login server.
     echo "Please login to create an Ethereum Server Wallet"
     cd modal-login
+    # Check if the yarn command exists; if not, install Yarn.
 
     # Node.js + NVM setup
     if ! command -v node > /dev/null 2>&1; then
@@ -122,32 +105,35 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
         if [ ! -d "$NVM_DIR" ]; then
             curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
         fi
-        # shellcheck source=/dev/null
-        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-        # shellcheck source=/dev/null
-        [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
         nvm install node
     else
         echo "Node.js is already installed: $(node -v)"
     fi
 
     if ! command -v yarn > /dev/null 2>&1; then
+        # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
         if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
-            echo "Detected Ubuntu/WSL. Installing Yarn via apt..."
-            curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-            echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-            sudo apt update && sudo apt install -y yarn
+            echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
+            curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
+            echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
+            apt update && apt install -y yarn
         else
-            echo "Installing Yarn globally with npm…"
+            echo "Yarn not found. Installing Yarn globally with npm (no profile edits)…"
+            # This lands in $NVM_DIR/versions/node/<ver>/bin which is already on PATH
             npm install -g --silent yarn
         fi
     fi
 
     ENV_FILE="$ROOT"/modal-login/.env
     if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS version
         sed -i '' "3s/.*/SWARM_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
         sed -i '' "4s/.*/PRG_CONTRACT_ADDRESS=$PRG_CONTRACT/" "$ENV_FILE"
+
     else
+        # Linux version
         sed -i "3s/.*/SWARM_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
         sed -i "4s/.*/PRG_CONTRACT_ADDRESS=$PRG_CONTRACT/" "$ENV_FILE"
     fi
@@ -158,12 +144,13 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
         echo "Building server"
         yarn build > "$ROOT/logs/yarn.log" 2>&1
     fi
-    yarn start >> "$ROOT/logs/yarn.log" 2>&1 &
+    yarn start >> "$ROOT/logs/yarn.log" 2>&1 & # Run in background and log output
 
-    SERVER_PID=$!
+    SERVER_PID=$!  # Store the process ID
     echo "Started server process: $SERVER_PID"
     sleep 5
 
+    # Try to open the URL in the default browser
     if [ -z "$DOCKER" ]; then
         if open http://localhost:3000 2> /dev/null; then
             echo_green ">> Successfully opened http://localhost:3000 in your default browser."
@@ -178,13 +165,14 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
 
     echo_green ">> Waiting for modal userData.json to be created..."
     while [ ! -f "modal-login/temp-data/userData.json" ]; do
-        sleep 5
+        sleep 5  # Wait for 5 seconds before checking again
     done
     echo "Found userData.json. Proceeding..."
 
     ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
     echo "Your ORG_ID is set to: $ORG_ID"
 
+    # Wait until the API key is activated by the client
     echo "Waiting for API key to become activated..."
     while true; do
         STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
@@ -200,88 +188,98 @@ fi
 
 echo_green ">> Getting requirements..."
 pip install --upgrade pip
+
 echo_green ">> Installing GenRL..."
 pip install gensyn-genrl==${GENRL_TAG}
-pip install reasoning-gym>=0.1.20
-pip install hivemind@git+https://github.com/gensyn-ai/hivemind@639c964a8019de63135a2594663b5bec8e5356dd
+pip install reasoning-gym>=0.1.20 # for reasoning gym env
+pip install trl==0.19.1
+pip install hivemind@git+https://github.com/gensyn-ai/hivemind@639c964a8019de63135a2594663b5bec8e5356dd # We need the latest, 1.1.11 is broken
 
-mkdir -p "$ROOT/configs"
+if [ ! -d "$ROOT/configs" ]; then
+    mkdir "$ROOT/configs"
+fi
 if [ -f "$ROOT/configs/rg-swarm.yaml" ]; then
+    # Use cmp -s for a silent comparison. If different, backup and copy.
     if ! cmp -s "$ROOT/rgym_exp/config/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml"; then
-        if [ -z "${GENSYN_RESET_CONFIG}" ]; then
-            echo_green ">> Found differences in rg-swarm.yaml. Set GENSYN_RESET_CONFIG to reset."
+        if [ -z "$GENSYN_RESET_CONFIG" ]; then
+            echo_green ">> Found differences in rg-swarm.yaml. If you would like to reset to the default, set GENSYN_RESET_CONFIG to a non-empty value."
         else
-            echo_green ">> Backing up existing config and copying default."
+            echo_green ">> Found differences in rg-swarm.yaml. Backing up existing config."
             mv "$ROOT/configs/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml.bak"
             cp "$ROOT/rgym_exp/config/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml"
         fi
     fi
 else
+    # If the config doesn't exist, just copy it.
     cp "$ROOT/rgym_exp/config/rg-swarm.yaml" "$ROOT/configs/rg-swarm.yaml"
 fi
 
 if [ -n "$DOCKER" ]; then
-    sudo chmod -R 0777 /home/gensyn/rl_swarm/configs
+    # Make it easier to edit the configs on Linux systems.
+    chmod -R 0777 /home/gensyn/rl_swarm/configs
 fi
 
 echo_green ">> Done!"
 
-# ======== PROMPTS (AUTO or INTERACTIVE) ========
-if [ "${AUTO_PROMPT}" != "true" ]; then
-    # HF push
+# ===================== AUTO PROMPT =====================
+# Set AUTO_PROMPT=true agar tidak ada input interaktif
+AUTO_PROMPT=${AUTO_PROMPT:-true}
+DEFAULT_MODEL_NAME=${DEFAULT_MODEL_NAME:-"Gensyn/Qwen2.5-0.5B-Instruct"}
+
+if [ "$AUTO_PROMPT" = "true" ]; then
+    # HF push: N
+    HUGGINGFACE_ACCESS_TOKEN="None"
+
+    # Model: Gensyn/Qwen2.5-0.5B-Instruct
+    MODEL_NAME="$DEFAULT_MODEL_NAME"
+    export MODEL_NAME
+    echo_green ">> Using model: $MODEL_NAME"
+
+    # PRG: Y
+    PRG_GAME=true
+    echo_green ">> Playing PRG game: true"
+else
+    # ====== PROMPTS INTERAKTIF (asli) ======
     echo -en $GREEN_TEXT
     read -p ">> Would you like to push models you train in the RL swarm to the Hugging Face Hub? [y/N] " yn
     echo -en $RESET_TEXT
-    yn=${yn:-N}
+    yn=${yn:-N} # Default to "N" if the user presses Enter
     case $yn in
         [Yy]*) read -p "Enter your Hugging Face access token: " HUGGINGFACE_ACCESS_TOKEN ;;
-        *) HUGGINGFACE_ACCESS_TOKEN="None" ;;
+        [Nn]*) HUGGINGFACE_ACCESS_TOKEN="None" ;;
+        *) echo ">>> No answer was given, so NO models will be pushed to Hugging Face Hub" && HUGGINGFACE_ACCESS_TOKEN="None" ;;
     esac
-    export HUGGINGFACE_ACCESS_TOKEN
 
-    # Model name
     echo -en $GREEN_TEXT
-    read -p ">> Enter the name of the model you want to use in huggingface repo/name format, or press [Enter] to use the default model. " MODEL_NAME_INPUT
+    read -p ">> Enter the name of the model you want to use in huggingface repo/name format, or press [Enter] to use the default model. " MODEL_NAME
     echo -en $RESET_TEXT
-    if [ -n "${MODEL_NAME_INPUT:-}" ]; then
-        export MODEL_NAME="$MODEL_NAME_INPUT"
+
+    # Only export MODEL_NAME if user provided a non-empty value
+    if [ -n "$MODEL_NAME" ]; then
+        export MODEL_NAME
         echo_green ">> Using model: $MODEL_NAME"
     else
         echo_green ">> Using default model from config"
     fi
 
-    # PRG
     echo -en $GREEN_TEXT
-    read -p ">> Would you like your model to participate in the AI Prediction Market? [Y/n] " yn2
-    echo -en $RESET_TEXT
-    if [ "${yn2:-Y}" = "n" ] || [ "${yn2:-Y}" = "N" ]; then
-        export PRG_GAME=false
+    read -p ">> Would you like your model to participate in the AI Prediction Market? [Y/n] " yn
+    if [ "$yn" = "n" ] || [ "$yn" = "N" ]; then
+        PRG_GAME=false
         echo_green ">> Playing PRG game: false"
     else
-        export PRG_GAME=true
         echo_green ">> Playing PRG game: true"
     fi
-else
-    echo_green ">> AUTO_PROMPT enabled. Using:"
-    echo_blue  "   - Push to HF: ${DEFAULT_PUSH_TO_HF}"
-    echo_blue  "   - Model: ${MODEL_NAME}"
-    echo_blue  "   - PRG Game: ${PRG_GAME}"
+    # ======================================
 fi
-# ================================================
+# =======================================================
 
+echo -en $RESET_TEXT
 echo_green ">> Good luck in the swarm!"
 echo_blue ">> And remember to star the repo on GitHub! --> https://github.com/gensyn-ai/rl-swarm"
 
-# ========== AUTO RESTART LOOP ==========
-while true; do
-    echo_green ">> Launching RL Swarm..."
-    python -m rgym_exp.runner.swarm_launcher \
-        --config-path "$ROOT/rgym_exp/config" \
-        --config-name "rg-swarm.yaml"
+python -m rgym_exp.runner.swarm_launcher \
+    --config-path "$ROOT/rgym_exp/config" \
+    --config-name "rg-swarm.yaml"
 
-    EXIT_CODE=$?
-    echo_red ">> RL Swarm exited with code $EXIT_CODE"
-    echo_blue ">> Restarting in 10 seconds..."
-    sleep 10
-done
-# ======================================
+wait  # Keep script running until Ctrl+C
