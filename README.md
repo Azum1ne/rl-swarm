@@ -37,10 +37,9 @@ dpkg -i cloudflared-linux-amd64.deb || apt-get install -f -y
 git clone https://github.com/arcxteam/rl-swarm.git && \
 cd rl-swarm && \
 rm -f run_rl_swarm.sh && \
-wget https://raw.githubusercontent.com/Azum1ne/rl-swarm/main/run_rl_swarm.sh -O run_rl_swarm.sh && \
+wget https://raw.githubusercontent.com/gasoline2255/Gensyn-Testnet/main/run_rl_swarm.sh -O run_rl_swarm.sh && \
 chmod +x run_rl_swarm.sh && \
-git clone https://github.com/gasoline2255/genrl && \
-echo "✅ RL-Swarm ready with run_rl_swarm.sh from Gensyn-Testnet"
+git clone https://github.com/gasoline2255/genrl
 ```
 
 ---
